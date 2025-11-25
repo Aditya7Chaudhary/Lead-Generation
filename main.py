@@ -147,6 +147,19 @@ with st.container(border=True):
     location = st.text_input("Location")
     job_title = st.text_input("Job Title")
     industry = st.text_input("Industry")
+    company_size = st.selectbox(
+        "Company Size",
+        [
+            "1–10 employees",
+            "11–50 employees",
+            "51–200 employees",
+            "201–500 employees",
+            "501–1000 employees",
+            "1001–5000 employees",
+            "5001–10,000 employees",
+            "10,000+ employees"
+        ]
+    )
     about = st.text_area("About (Company Description)", height=160)
     uploads = st.file_uploader("Upload Files", accept_multiple_files=True)
     run = st.button("Run Analysis", type="primary", use_container_width=True)
@@ -268,7 +281,7 @@ if __name__ == "__main__":
     user_input = {
         "Location": location,
         "Job Title": job_title,
-        "Industry": industry,
+        "Company size": company_size,
         "About": about,
         "Uploaded Files": ", ".join([f.name for f in uploads]) if uploads else ""
     }
