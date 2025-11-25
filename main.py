@@ -6,260 +6,274 @@ from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 from PyPDF2 import PdfReader
 from docx import Document
-from openai import OpenAI
+import google.generativeai as genai
+import spacy
+import csv
+import os
 
-# Initialize OpenAI client
-client = OpenAI(api_key="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")
 
-# Download required NLTK resources (only once)
-nltk.download('punkt')
-nltk.download('punkt_tab')
-nltk.download('stopwords')
-nltk.download('wordnet')
+# -------------------- SETUP --------------------
+GEMINI_API_KEY = "AIzaSyCpVuZQksbWbdW7fQ_LoVDSndRENmDj_fY"
+genai.configure(api_key=GEMINI_API_KEY)
 
-# --- Helper functions ---
-def preprocess_text(text):
+nltk.download("punkt")
+nltk.download("stopwords")
+nltk.download("wordnet")
+
+nlp = spacy.load("en_core_web_sm")
+
+# -------------------- UTILS --------------------
+def call_gemini(prompt: str):
+    """Safe, clean Gemini call wrapper."""
+    try:
+        model = genai.GenerativeModel("gemini-2.5-flash")
+        resp = model.generate_content(prompt)
+        if resp and resp.text:
+            return resp.text.strip()
+        return ""
+    except Exception as e:
+        return f"ERROR: {e}"
+
+def preprocess_text(text: str):
     text = text.lower()
-    text = re.sub(r'[^a-z\s]', '', text)
+    text = re.sub(r"[^a-z\s]", " ", text)
     tokens = nltk.word_tokenize(text)
-    stop_words = set(stopwords.words('english'))
-    tokens = [t for t in tokens if t not in stop_words]
-    lemmatizer = WordNetLemmatizer()
-    tokens = [lemmatizer.lemmatize(t) for t in tokens]
+    tokens = [t for t in tokens if t not in stopwords.words("english")]
+    tokens = [WordNetLemmatizer().lemmatize(t) for t in tokens]
     return " ".join(tokens)
 
-def extract_text_from_file(uploaded_file):
+def extract_text_from_file(file):
     text = ""
-    if uploaded_file.name.endswith(".pdf"):
-        reader = PdfReader(uploaded_file)
+    if file.name.endswith(".pdf"):
+        reader = PdfReader(file)
         for page in reader.pages:
             text += page.extract_text() or ""
-    elif uploaded_file.name.endswith(".docx"):
-        doc = Document(uploaded_file)
+    elif file.name.endswith(".docx"):
+        doc = Document(file)
         for para in doc.paragraphs:
             text += para.text + " "
-    elif uploaded_file.name.endswith(".txt"):
-        text = uploaded_file.read().decode("utf-8")
-    else:
-        text = ""
+    elif file.name.endswith(".txt"):
+        text = file.read().decode("utf-8")
     return text
 
-def extract_keywords_llm(clean_text):
+# -------------------- LLM: ICP KEYWORDS --------------------
+def extract_keywords_llm(text):
     prompt = f"""
-    ### ROLE & GOAL
-    You are an expert Text Analyst and B2B Marketing Strategist. Your primary goal is to analyze the provided text (which may be a company description, product document, or 'About' page) and extract a list of high-intent, specific, and descriptive keywords and keyphrases.
+You are an ICP Keyword Extractor.
 
-    These keywords will be used for lead generation. They must capture the company's core identity, what it sells, who it sells to, and the problems it solves.
+Extract ONLY commercially valuable ICP keywords from the text:
 
-    ### KEYWORD CATEGORIES TO EXTRACT
-    Analyze the text and extract keywords that fall into these specific categories:
+Include:
+- industry sectors
+- buyer roles & titles
+- functional pain points
+- capabilities
+- technical stack
 
-    1.  **Core Products & Services:** What do they actually sell?
-        * (e.g., "AI-driven platform," "SaaS solution," "data analytics tool," "CRM software")
+Rules:
+- NO verbs
+- NO sentences
+- ONLY nouns and noun phrases
+- NO filler words
+- NO duplicates
+- Return ONLY a comma-separated list
 
-    2.  **Key Features & Capabilities:** What does their product *do*?
-        * (e.g., "demand forecasting," "inventory management," "automated billing," "workflow automation")
+TEXT:
+{text}
+"""
+    return call_gemini(prompt)
 
-    3.  **Target Industry & Domain:** What specific industries do they serve?
-        * (e.g., "healthcare," "fintech," "e-commerce," "supply chain logistics," "real estate")
+# -------------------- LLM: SUMMARY --------------------
+def summarize_text(text):
+    prompt = f"""
+You are a Senior Market Research Analyst.
 
-    4.  **Target Audience & Customer Profile:** *Who* are their customers?
-        * (e.g., "B2B clients," "enterprise," "small businesses," "software engineers," "marketing managers")
+Summarize the company text into exactly 5 bullet points:
 
-    5.  **Technologies & Jargon:** What specific technologies, standards, or acronyms do they use or mention?
-        * (e.g., "machine learning," "AWS," "Azure," "API," "HIPAA-compliant," "ERP," "ISO 27001")
+1. Core Offering
+2. Ideal Buyers
+3. Business Value
+4. Key Differentiator
+5. Revenue Model
 
-    6.  **Problems Solved & Value Proposition:** What *problems* do they solve or what *value* do they provide? (Focus on the *concept*, not the action).
-        * (e.g., "cost reduction," "workflow optimization," "revenue growth," "risk management," "data security")
+Return ONLY the 5 bullet points.
 
-    ### STRICT OUTPUT FORMATTING
+TEXT:
+{text}
+"""
+    return call_gemini(prompt)
 
-    * **ONLY** return a single, comma-separated list.
-    * **DO NOT** include any preamble, explanation, or titles (e.g., do not write "Here is the list:").
-    * **DO NOT** use bullet points or newlines.
-    * **NEW, CRITICAL RULE: DO NOT return full sentences, clauses, or any text containing verbs** (e.g., 'we help you optimize' is WRONG. 'workflow optimization' is CORRECT). Focus exclusively on nouns, noun phrases, and technical acronyms.
-    * **DO NOT** include generic, non-descriptive, or common "stopwords" (e.g., 'we', 'our', 'the', 'is', 'a', 'for', 'company', 'solution', 'technology'). Only return the specific terms.
-    * **DO** combine words into meaningful noun phrases (e.g., "supply chain optimization" is better than "supply," "chain," "optimization").
+# -------------------- NER --------------------
+def extract_ner(text):
+    doc = nlp(text)
+    ents = [ent.text for ent in doc.ents if ent.label_ in ["ORG", "PRODUCT", "GPE"]]
+    return list(set(ents))
 
-    ---
+# -------------------- CLEANING --------------------
+def clean_keywords(keywords):
+    stop = set([
+        "data", "research", "product", "industry", "company",
+        "service", "technology", "platform", "solution", 
+        "system", "software", "application", "team"
+    ])
 
-    ### HIGH-QUALITY EXAMPLE
+    cleaned = []
+    for kw in keywords:
+        kw = kw.strip().lower()
+        if not kw:
+            continue
+        if len(kw) < 3:
+            continue
+        if kw in stop:
+            continue
+        if not re.match("^[a-zA-Z\s]+$", kw):
+            continue
+        cleaned.append(kw)
 
-    **Input Text:**
-    "Our advanced, AI-driven platform helps e-commerce businesses optimize their supply chain. We use proprietary machine learning models for demand forecasting and inventory management, which reduces costs for our B2B clients. Our solution is fully scalable on AWS and is GDPR-compliant."
+    return sorted(set(cleaned))
 
-    **Your Output (This is the format you MUST follow):**
-    AI-driven platform, e-commerce, supply chain optimization, proprietary machine learning models, demand forecasting, inventory management, cost reduction, B2B clients, scalable, AWS, GDPR-compliant
+# -------------------- STREAMLIT UI --------------------
+st.set_page_config(page_title="LeadGen Intelligence Engine", layout="wide")
 
-    ---
+if "final_keywords" not in st.session_state:
+    st.session_state.final_keywords = []
 
-    ### TEXT TO ANALYZE:
-    {clean_text}
-    """
-    
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",  # or "gpt-4o" or "gpt-3.5-turbo"
-            messages=[{"role": "user", "content": prompt}]
-        )
-        return response.choices[0].message.content.strip()
+if "selected_keywords" not in st.session_state:
+    st.session_state.selected_keywords = set()
 
-    except Exception as e:
-        import streamlit as st
-        st.error(f"⚠️ OpenAI API error: {e}")
-        return ""
+st.title("📌 LeadGen Intelligence Engine")
 
-
-# Set the title and icon of the web page
-st.set_page_config(
-    page_title="User Information Form",
-    page_icon="📋",
-    layout="wide"
-)
-
-# --- Initialize Session State for Keywords ---
-# This is crucial for the tag feature to work
-if 'keywords_list' not in st.session_state:
-    st.session_state.keywords_list = []
-
-# --- Page Header ---
-st.title("User Information Form")
-st.markdown("Please fill out the details below to submit your information.")
-st.markdown("---")
-
-# --- User Form Fields ---
-# We no longer use st.form, which allows us to place the
-# interactive keyword section anywhere we want.
 with st.container(border=True):
+    location = st.text_input("Location")
+    job_title = st.text_input("Job Title")
+    industry = st.text_input("Industry")
+    about = st.text_area("About (Company Description)", height=160)
+    uploads = st.file_uploader("Upload Files", accept_multiple_files=True)
+    run = st.button("Run Analysis", type="primary", use_container_width=True)
+
+summary = ""
+
+# -------------------- PROCESS --------------------
+if run:
+    all_text = about
+
+    if uploads:
+        for f in uploads:
+            all_text += " " + extract_text_from_file(f)
+
+    # LLM keyword extraction
+    llm_raw = extract_keywords_llm(all_text)
+    llm_keywords = [k.strip() for k in llm_raw.split(",") if k.strip()]
+
+    # NER
+    ner = extract_ner(all_text)
+
+    # Summary
+    summary = summarize_text(all_text)
+    st.session_state.summary = summary
+
+    # MERGING (LLM dominates)
+    merged = set(llm_keywords)
+    merged.update([k.lower() for k in ner])
+
+    st.session_state.final_keywords = clean_keywords(list(merged))
+
+    st.success("✅ Analysis Complete!")
+
+# -------------------- DISPLAY --------------------
+st.subheader("📌 Summary")
+st.write(st.session_state.get("summary", ""))
+
+st.subheader("📌 Manage Keywords")
+
+cols = st.columns(3)
+
+for i, kw in enumerate(st.session_state.final_keywords):
+    col = cols[i % 3]
+    with col:
+        checked = st.checkbox(kw, key=f"kw_{kw}", value=kw in st.session_state.selected_keywords)
+        if checked:
+            st.session_state.selected_keywords.add(kw)
+        else:
+            st.session_state.selected_keywords.discard(kw)
+
+# DELETE BUTTON
+if st.button("❌ Delete Selected Keywords", type="secondary"):
+    st.session_state.final_keywords = [
+        k for k in st.session_state.final_keywords
+        if k not in st.session_state.selected_keywords
+    ]
+    st.session_state.selected_keywords = set()
+    st.rerun()
+
+# FINAL OUTPUT
+st.subheader("📌 Final Keywords")
+st.write(st.session_state.final_keywords)
+
+
+def save_keywords_to_csv(keywords, filename="keywords.csv"):
+    os.makedirs("data", exist_ok=True)   # Save all CSVs inside /data folder
+    filepath = os.path.join("data", filename)
+
+    with open(filepath, mode="w", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+        writer.writerow(["Keyword"])
+        for kw in keywords:
+            writer.writerow([kw])
+
+    print(f"Saved {len(keywords)} keywords to {filepath}")
     
-    # --- All fields are now in a single column ---
-    
-    # Field: location
-    location = st.text_input(
-        label="Location",
-        placeholder="e.g., San Francisco, CA or Remote"
-    )
-    
-    # Field: job title
-    job_title = st.text_input(
-        label="Job Title",
-        placeholder="e.g., Software Engineer"
-    )
-    
-    # Field: company size
-    company_size = st.selectbox(
-        label="Company Size",
-        options=[
-            "", 
-            "1-10 employees", 
-            "11-50 employees", 
-            "51-200 employees", 
-            "201-500 employees", 
-            "501-1000 employees", 
-            "1001-5000 employees",
-            "5001-10,000 employees",
-            "10,001+ employees"
-        ],
-        help="Select the approximate size of the company."
-    )
-    
-    # Field: industry
-    industry = st.text_input(
-        label="Industry",
-        placeholder="e.g., Technology, Finance, Healthcare"
-    )
-    
-    # Field: About
-    About = st.text_area(
-        label="About",
-        placeholder="Provide your company description here...",
-        height=200 # Give it a fixed height
-    )
 
-    # Field: upload docs
-    uploaded_docs = st.file_uploader(
-        label="Upload Docs",
-        type=None,  # Allow all file types
-        accept_multiple_files=True,
-        help="Upload any relevant documents."
-    )
+def save_summary_to_csv(summary_text, filename="summary.csv"):
+    os.makedirs("data", exist_ok=True)
+    filepath = os.path.join("data", filename)
 
-    st.markdown("---") # Visual separator
-    
-    # --- Keyword Tag Input Logic ---
-    # This section is now in the location you requested.
-    
-    st.subheader("Keywords")
+    # Split summary into bullet points
+    lines = [line.strip() for line in summary_text.split("\n") if line.strip()]
 
-    # 1. Define the callback function to add a new keyword
-    def add_keyword_callback():
-        new_keyword = st.session_state.keyword_input_box.strip()
-        if new_keyword and new_keyword not in st.session_state.keywords_list:
-            st.session_state.keywords_list.append(new_keyword)
-        st.session_state.keyword_input_box = "" # Clear the box
+    with open(filepath, mode="w", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+        writer.writerow(["Summary Point"])
+        for line in lines:
+            writer.writerow([line])
 
-    # 2. The text input for ADDING new keywords
-    st.text_input(
-        label = "Keywords",
-        placeholder="Type a keyword and press Enter...",
-        key='keyword_input_box',
-        on_change=add_keyword_callback,
-        help="Type a keyword and press Enter to add it as a tag below."
-    )
-
-    # 3. The multiselect for VIEWING and REMOVING tags
-    st.session_state.keywords_list = st.multiselect(
-        label="Your Keywords",
-        options=st.session_state.keywords_list,
-        default=st.session_state.keywords_list,
-        help="This box shows your added keywords. Click the 'x' on any tag to remove it."
-    )
-        
-    st.markdown("---") # Visual separator
-    
-    # --- Form Submission Button ---
-    # This is now a regular st.button, not a form submit button
-    submit_button = st.button(
-        label="Submit Information",
-        use_container_width=True,
-        type="primary"
-    )
+    print(f"Saved {len(summary_text)} summary topics to {filepath}")
 
 
-# --- When Submit Button is Clicked ---
-if submit_button:
-    st.success("Form submitted successfully!")
-    st.balloons()
+def save_initial_input_to_csv(input_dict, filename="input_data.csv"):
 
-    # Combine About text + uploaded files
-    full_text = About
-    if uploaded_docs:
-        for f in uploaded_docs:
-            full_text += " " + extract_text_from_file(f)
+    os.makedirs("data", exist_ok=True)
+    filepath = os.path.join("data", filename)
 
-    # Preprocess text
-    cleaned_text = preprocess_text(full_text)
+    with open(filepath, mode="w", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
 
-    # Extract keywords via LLM
-    keywords = extract_keywords_llm(cleaned_text)
+        writer.writerow(["Field", "Value"])   # Header
 
-    # Combine everything
-    submitted_data = {
+        for key, value in input_dict.items():
+            writer.writerow([key, value])
+
+    print(f"Saved input data to {filepath}")
+
+
+if __name__ == "__main__":
+
+    # Example keywords list
+    keywords_list = st.session_state.final_keywords
+
+    # Example summary topics
+    summary_list = st.session_state.get("summary", "")
+
+    # Example initial user input
+    user_input = {
         "Location": location,
         "Job Title": job_title,
-        "Company Size": company_size,
         "Industry": industry,
-        "About": About,
-        "Cleaned Text": cleaned_text,
-        "Keywords": keywords,
-        "Uploaded Files": [file.name for file in uploaded_docs] if uploaded_docs else []
+        "About": about,
+        "Uploaded Files": ", ".join([f.name for f in uploads]) if uploads else ""
     }
 
-    # Display extracted keywords
-    st.subheader("Extracted Keywords")
-    st.write(keywords)
-
-    # Save all data to a CSV file
-    df = pd.DataFrame([submitted_data])
-    df.to_csv("processed_data.csv", mode='a', index=False, header=False)
-    st.success("✅ Data saved to processed_data.csv (appended)")
+    # Save all CSVs
+    save_keywords_to_csv(keywords_list)
+    save_summary_to_csv(summary_list)
+    save_initial_input_to_csv(user_input)
