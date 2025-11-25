@@ -1,8 +1,8 @@
 # 📌 LeadGen Intelligence Engine
 
-## An AI-powered tool that helps extract high-value insights from company documents for B2B lead generation.
+### An AI-powered tool that helps extract high-value insights from company documents for B2B lead generation.
 
-## This app analyzes text and uploaded documents to generate:
+### This app analyzes text and uploaded documents to generate:
 
 * 🎯 Relevant targeting keywords
 
@@ -12,16 +12,16 @@
 
 * ✨ A clean list of final keywords ready for outreach or segmentation
 
-## Built for SDRs, Marketing Teams, Founders, and Business Analysts who want to understand a company quickly and generate ICP-aligned keywords.
+### Built for SDRs, Marketing Teams, Founders, and Business Analysts who want to understand a company quickly and generate ICP-aligned keywords.
 
 * 🚀 Features
 * 🔍 Document & Text Analysis
 
-## Upload PDFs, DOCX files, or raw text—everything is processed automatically.
+### Upload PDFs, DOCX files, or raw text—everything is processed automatically.
 
 # 🤖 AI-Generated Summary
 
-# A 5-point business summary focusing on:
+### A 5-point business summary focusing on:
 
 * Core offering
 
@@ -35,7 +35,7 @@
 
 # 🎯 Keyword Universe
 
-## Generates a wide set of relevant keywords describing:
+### Generates a wide set of relevant keywords describing:
 
 * Industry
 
@@ -49,8 +49,8 @@
 
 # 🧹 Keyword Cleanup
 
-## Manually select or remove keywords using an interactive UI.
-## Instant deletion and fully editable output.
+### Manually select or remove keywords using an interactive UI.
+### Instant deletion and fully editable output.
 
 # 📌 Final Output
 
